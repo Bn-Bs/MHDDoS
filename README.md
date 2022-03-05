@@ -139,9 +139,9 @@ python3 start.py bypass https://example.com 5 1000 socks5.txt 100 100 true
 python3 start.py udp 1.1.1.1:53 1 100 true
 ```
 
-* Layer7 (Website) - dynamic target selection to help Ukraine:
+* Layer7 (Website) - dynamic target selection to help Ukraine. Stats supported only for methods: bypass, cgb, dgb
 ```console
-python3 start.py bypass nukerussia 5 1000 socks5.txt 100 100
+while true; do python3 start.py bypass nukerussia 5 1000 socks5.txt 100 100 true; done
 ```
 
 * Tools/Help:
